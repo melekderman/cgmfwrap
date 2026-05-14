@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/nfs/stak/users/agnellj/project/wrapper/cgmfwrap/build/cmake_install.cmake",
-		"/nfs/stak/users/agnellj/project/wrapper/cgmfwrap/build/_deps/pybind11-build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
