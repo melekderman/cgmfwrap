@@ -1,60 +1,64 @@
-
-
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <fstream>
-#include <unistd.h>
 #include <cstdlib>
+#include <memory>
+#include <stdexcept>
+#include <vector>
 
 #include "cgmfEvents.h"
-#include "config.h"
-#include "physics.h"
-#include "kcksyst.h"
-#include "ripl2levels.h"
 #include "rngcgm.h"
-#include "iostream"
-#include "config-ff.h"
 
-using namespace std;
 struct EventOutput {
     std::vector<double> neutron_energies;
     std::vector<double> gamma_energies;
     std::vector<double> neutron_dir_cosu;
     std::vector<double> neutron_dir_cosv;
     std::vector<double> neutron_dir_cosw;
-    std::vector<double> gamma_dir_cosu;
-    std::vector<double> gamma_dir_cosv;
-    std::vector<double> gamma_dir_cosw;
     int nu_n;
     int nu_g;
 };
+
+namespace {
+const char* resolve_data_path() {
+    const char* env_path = std::getenv("CGMFDATA");
+    if (env_path != nullptr && env_path[0] != '\0') {
+        return env_path;
+    }
+#ifdef CGMF_DATA_PATH_DEFAULT
+    return CGMF_DATA_PATH_DEFAULT;
+#else
+    throw std::runtime_error(
+        "CGMF data path is not configured. Set CGMFDATA, or build with "
+        "-DCGMF_DATA_DIR=/path/to/CGMF/data."
+    );
+#endif
+}
+
+void initialize_cgmf() {
+    static bool initialized = false;
+    if (initialized) {
+        return;
+    }
+
+    setdatapath(resolve_data_path());
+
+    static UniformRNG rng(1);
+    set_rng(rng);
+
+    // Intentionally leak the initializer event: CGMF's destructor calls
+    // cgmDeleteAllocated, which double-frees its internal allocations during
+    // process exit on macOS. Letting the OS reclaim the memory avoids that.
+    new cgmfEvent();
+    initialized = true;
+}
+}  // namespace
+
 // ZAID = 1000*Z+A of fissioning nucleus
 EventOutput run_single_event(int ZAIDt, double Ein) {
 
-    setdatapath("/nfs/stak/users/agnellj/project/CGMF/data");
-    // static bool initialized = false;
-    //if (!initialized) {
-     //   static cgmfEvent init;   // calls initialization() and allocates memory
-     //   initialized = true;
-    //}
-     static bool rng_set = false;
-    if (!rng_set) {
-        UniformRNG rng(1);      // seed = 1 or whatever you want
-        set_rng(rng);           // REQUIRED
-        rng_set = true;
-    }
-    static bool initialized = false;
-    if (!initialized) {
-        static cgmfEvent init;   // calls initialization() and allocates memory
-        initialized = true;
-    }
+    initialize_cgmf();
 
     double time = 0.0;
     double timeWindow = 0.0;
-    cgmfEvent*  event = 0;
-    event = new cgmfEvent(ZAIDt, Ein, time, timeWindow);
-    
+    auto event = std::make_unique<cgmfEvent>(ZAIDt, Ein, time, timeWindow);
 
     EventOutput out;
 
@@ -89,7 +93,7 @@ EventOutput run_single_event(int ZAIDt, double Ein) {
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(cgmfwrap, m) {
+PYBIND11_MODULE(_native, m) {
     py::class_<EventOutput>(m, "EventOutput")
         .def(py::init<>())
         .def_readwrite("neutron_energies", &EventOutput::neutron_energies)
@@ -98,12 +102,11 @@ PYBIND11_MODULE(cgmfwrap, m) {
         .def_readwrite("nu_g", &EventOutput::nu_g)
         .def_readwrite("neutron_dir_cosu", &EventOutput::neutron_dir_cosu)
         .def_readwrite("neutron_dir_cosv", &EventOutput::neutron_dir_cosv)
-        .def_readwrite("neutron_dir_cosw", &EventOutput::neutron_dir_cosw)
-        ;m.doc() = "CGMF single-event wrapper";
+        .def_readwrite("neutron_dir_cosw", &EventOutput::neutron_dir_cosw);
+
+    m.doc() = "CGMF single-event wrapper";
 
     m.def("run_event", &run_single_event,
+          py::arg("ZAIDt"), py::arg("Ein"),
           "Generate a single CGMF fission event");
-        py::arg("ZAIDt"), py::arg("Ein");
-   
-
 }

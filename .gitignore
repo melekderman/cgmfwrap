@@ -1,0 +1,9 @@
+build/
+dist/
+*.egg-info/
+_skbuild/
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+*.dll
